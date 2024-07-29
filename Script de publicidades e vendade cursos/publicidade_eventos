@@ -1,0 +1,144 @@
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+import uuid
+from flask import Flask, request, render_template, redirect, url_for
+
+# Configuração do Flask
+app = Flask(__name__)
+
+# Configuração SMTP
+smtp_server = 'smtp.office365.com'
+smtp_port = 587
+smtp_user = 'cursooline_contato@outlook.com.br'
+smtp_password = 'Carmo135!@#'
+
+# Simulação de banco de dados para emails e tokens
+subscribed_emails = {}  # email: token
+unsubscribed_emails = set()  # emails que optaram por sair
+
+# Função para criar o corpo do email com a imagem e link de desinscrição
+def create_email_body(name, image_path, unsubscribe_url):
+    with open(image_path, 'rb') as img:
+        img_data = img.read()
+
+    html = f"""
+    <html>
+    <body>
+        <p>Olá, {name.split()[0]}, adquira já o curso da Nova Lei de Licitações e Contratos</p>
+        <p>Novo lançamento de treinamento da NLLC por Maike Oliveira</p>
+        <img src="cid:image1" alt="Curso atualizado">
+        <p>📢 Curso de Licitações e Contratos com Maike Oliveira! 📢</p>
+        <p>Você quer dominar o processo de licitações e contratos e garantir o sucesso nos seus projetos? Então, não perca a oportunidade de aprender com um dos maiores especialistas do mercado!</p>
+
+        <p>🔸 Maike Oliveira - Especialista em Licitações e Contratos 🔸</p>
+
+        <p>O que você vai aprender:</p>
+        <ul>
+            <li>Fundamentos das Licitações: Entenda as leis e regulamentos essenciais.</li>
+            <li>Estratégias de Sucesso: Aprenda técnicas avançadas para preparar propostas vencedoras.</li>
+            <li>Gestão de Contratos: Saiba como gerenciar e executar contratos de forma eficiente e eficaz.</li>
+            <li>Casos Práticos: Estudo de casos reais para aplicar o conhecimento adquirido.</li>
+        </ul>
+
+        <p>Benefícios Exclusivos:</p>
+        <ul>
+            <li>Acesso Vitalício: Tenha acesso ao conteúdo do curso para sempre.</li>
+            <li>Suporte Especializado: Tire todas as suas dúvidas diretamente com Maike Oliveira.</li>
+            <li>Networking: Conecte-se com outros profissionais da área.</li>
+        </ul>
+
+        <p>Por que investir?</p>
+        <ul>
+            <li>Expertise Comprovada: Maike Oliveira é um especialista renomado com vasta experiência em licitações e contratos.</li>
+            <li>Conteúdo Atualizado: Mantenha-se atualizado com as últimas tendências e mudanças na legislação.</li>
+            <li>Crescimento Profissional: Aumente suas chances de sucesso e destaque-se no mercado de trabalho.</li>
+        </ul>
+
+        <p>📲 Para mais informações e inscrições, acesse: <a href="[Insira o link de inscrição]">[Insira o link de inscrição]</a></p>
+
+        <p>Não deixe essa oportunidade passar! Transforme sua carreira e seja um expert em Licitações e Contratos com Maike Oliveira. 🚀</p>
+
+        <p>Se você não quiser mais receber nossos emails, <a href="{unsubscribe_url}">clique aqui para descadastrar</a>.</p>
+    </body>
+    </html>
+    """
+
+    msg = MIMEMultipart()
+    msg.attach(MIMEText(html, 'html'))
+    image = MIMEImage(img_data, name='promocao.jpg')
+    image.add_header('Content-ID', '<image1>')
+    msg.attach(image)
+
+    return msg
+
+def send_email(to_email, subject, body):
+    msg = MIMEMultipart()
+    msg['From'] = smtp_user
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    msg.attach(body)
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, to_email, msg.as_string())
+        print(f"Email enviado para {to_email}")
+    except Exception as e:
+        print(f"Erro ao enviar email para {to_email}: {e}")
+
+def generate_unsubscribe_url(email):
+    token = str(uuid.uuid4())
+    subscribed_emails[email] = token
+    # Use uma URL base fixa ou configure o Flask para fornecer essa informação
+    base_url = "http://localhost:5000/unsubscribe/confirm"
+    return f"{base_url}?token={token}"
+
+@app.route('/unsubscribe')
+def unsubscribe():
+    unsubscribe_confirm_url = url_for('unsubscribe_confirm', _external=True)
+    return render_template('unsubscribe.html', unsubscribe_confirm_url=unsubscribe_confirm_url)
+
+@app.route('/unsubscribe/confirm', methods=['GET'])
+def unsubscribe_confirm():
+    token = request.args.get('token')
+    email = next((email for email, t in subscribed_emails.items() if t == token), None)
+    
+    if email:
+        unsubscribed_emails.add(email)
+        del subscribed_emails[email]
+        return redirect(url_for('unsubscribe_success'))
+    else:
+        return "Token inválido ou email não encontrado", 400
+
+@app.route('/unsubscribe/success')
+def unsubscribe_success():
+    return '''
+    <html>
+    <body>
+        <h1>Você foi desinscrito com sucesso!</h1>
+        <p>Você não receberá mais nossos emails. Agradecemos por seu tempo.</p>
+    </body>
+    </html>
+    '''
+
+# Envio de emails
+recipients = [
+    {"nome_completo": "Washington Souza do Carmo", "email": "ws.carmo.souza@gmail.com"}
+    # Adicione os demais destinatários aqui
+]
+
+for recipient in recipients:
+    unsubscribe_url = generate_unsubscribe_url(recipient['email'])
+    email_body = create_email_body(recipient['nome_completo'], 'DAVID.png', unsubscribe_url)
+    
+    subject = "Curso de Licitações e Contratos com Maike Oliveira!"
+
+    send_email(recipient['email'], subject, email_body)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=False)
+
